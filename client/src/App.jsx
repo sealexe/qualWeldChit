@@ -10,7 +10,38 @@ function App() {
   const [status, setStatus] = useState('idle') // idle | generating | done | error
   const [errorMessage, setErrorMessage] = useState('')
   const [downloadId, setDownloadId] = useState(null)
+  // Результат предварительной проверки файла на сервере:
+  // { rowCount, multiTemplateCount, needsControlMethod } или null, пока не проверили.
+  const [inspection, setInspection] = useState(null)
+  const [isInspecting, setIsInspecting] = useState(false)
   const fileInputRef = useRef(null)
+
+  // Сразу после выбора файла спрашиваем сервер, нужен ли выбор метода контроля.
+  // Для сварщиков, у которых в папке шаблонов несколько методов (например 3/РД),
+  // создаются все акты сразу — и выбирать метод не нужно.
+  const inspectFile = async (selectedFile) => {
+    setIsInspecting(true)
+    setInspection(null)
+
+    const formData = new FormData()
+    formData.append('file', selectedFile)
+
+    try {
+      const res = await fetch('/api/inspect', { method: 'POST', body: formData })
+      const data = await res.json()
+      if (!res.ok) {
+        setStatus('error')
+        setErrorMessage(data.error || 'Не удалось прочитать файл')
+        return
+      }
+      setInspection(data)
+    } catch {
+      setStatus('error')
+      setErrorMessage('Не удалось связаться с сервером')
+    } finally {
+      setIsInspecting(false)
+    }
+  }
 
   const chooseFile = (selectedFile) => {
     if (!selectedFile) return
@@ -18,6 +49,7 @@ function App() {
     setStatus('idle')
     setDownloadId(null)
     setErrorMessage('')
+    inspectFile(selectedFile)
   }
 
   const handleDrop = (event) => {
@@ -32,7 +64,9 @@ function App() {
 
     const formData = new FormData()
     formData.append('file', file)
-    formData.append('controlMethod', controlMethod)
+    if (inspection.needsControlMethod) {
+      formData.append('controlMethod', controlMethod)
+    }
 
     try {
       const res = await fetch('/api/generate', { method: 'POST', body: formData })
@@ -56,7 +90,9 @@ function App() {
     window.location.href = `/api/download/${downloadId}`
   }
 
-  const canGenerate = file && controlMethod && status !== 'generating'
+  const needsControlMethod = inspection?.needsControlMethod
+  const canGenerate =
+    file && inspection && (!needsControlMethod || controlMethod) && status !== 'generating'
 
   return (
     <div className={styles.page}>
@@ -86,22 +122,30 @@ function App() {
         />
       </div>
 
-      <div className={styles.row}>
-        <label htmlFor="controlMethod">Метод контроля</label>
-        <select
-          id="controlMethod"
-          className={styles.select}
-          value={controlMethod}
-          onChange={(e) => setControlMethod(e.target.value)}
-        >
-          <option value="">-- выберите --</option>
-          {CONTROL_METHODS.map((method) => (
-            <option key={method} value={method}>
-              {method}
-            </option>
-          ))}
-        </select>
-      </div>
+      {isInspecting && <div className={styles.status}>Проверка файла...</div>}
+
+      {needsControlMethod && (
+        <div className={styles.row}>
+          <label htmlFor="controlMethod">
+            {inspection.multiTemplateCount > 0
+              ? 'Метод контроля для остальных сварщиков'
+              : 'Метод контроля'}
+          </label>
+          <select
+            id="controlMethod"
+            className={styles.select}
+            value={controlMethod}
+            onChange={(e) => setControlMethod(e.target.value)}
+          >
+            <option value="">-- выберите --</option>
+            {CONTROL_METHODS.map((method) => (
+              <option key={method} value={method}>
+                {method}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <button className={styles.button} disabled={!canGenerate} onClick={handleGenerate}>
         {status === 'generating' ? 'Генерация...' : 'Сгенерировать'}

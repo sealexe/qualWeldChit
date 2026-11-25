@@ -84,3 +84,11 @@
   margin-top: 16px;
   color: #555;
 }
+
+.info {
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 6px;
+  background-color: #eef5fc;
+  color: #2b4a6b;
+}
